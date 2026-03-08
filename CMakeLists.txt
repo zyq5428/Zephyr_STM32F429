@@ -34,7 +34,7 @@ target_include_directories(app PRIVATE
 target_sources(app PRIVATE
     src/led_thread.c
     src/display_thread.c
-    src/self_test_thread.c
+    # src/self_test_thread.c
     # drivers/ssd1306_drv.c
 )
 
