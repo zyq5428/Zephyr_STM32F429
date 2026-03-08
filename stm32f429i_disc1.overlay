@@ -1,0 +1,150 @@
+/* stm32f429i_disc1.overlay */
+
+/ {
+	// chosen {
+	// 	zephyr,console = &usart1;
+	// 	zephyr,shell-uart = &usart1;
+	// 	zephyr,sram = &sram0;
+	// 	zephyr,flash = &flash0;
+	// 	zephyr,ccm = &ccm0;
+	// 	zephyr,display = &ltdc;
+	// 	zephyr,touch = &stmpe811;
+	// };
+
+	// aliases {
+	// 	led0 = &green_led_3;
+	// 	sw0 = &user_button;
+	// }; 
+
+	// leds {
+	// 	compatible = "gpio-leds";
+    //     // <&gpioe 7 GPIO_ACTIVE_HIGH> 这一行可能需要调整
+    //     // 但是对于 led 节点，这是一个标志，表示该引脚是低电平有效的。
+        
+    //     // 根据您的电路，低电平点亮，所以它是 GPIO_ACTIVE_LOW
+    //     // 这将影响驱动程序对 "开/关" 的解释。
+
+    //     // 修正引脚极性 (这是最标准的做法)
+	// 	blue_led: led_2 {
+	// 		gpios = <&gpioe 9 GPIO_ACTIVE_LOW>;
+	// 	};
+	// };
+
+	// gpio_keys {
+	// 	compatible = "gpio-keys";
+
+	// 	user_button: button {
+	// 		label = "User";
+	// 		gpios = <&gpioa 0 GPIO_ACTIVE_LOW>;
+	// 		zephyr,code = <INPUT_KEY_0>;
+	// 	};
+	// };
+
+	/* 定义 PWM LED 节点 */
+	// pwmleds: pwmleds {
+	// 	compatible = "pwm-leds";
+	// 	status = "okay";
+
+	// 	pwm_led: pwm_led {		
+	// 		/*
+	// 		* <&pwm4   : 使用 TIM3 定时器
+	// 		* 4       : 使用第 2 通道 (对应 PC7)
+	// 		* PWM_MSEC(20) : PWM 周期 20ms (50Hz)，适合 LED 调光
+	// 		* 100000 : 10KHz 对应周期 100,000 ns, 适用于无极级调光背光
+	// 		* PWM_POLARITY_NORMAL : 正常极性 (高电平有效/点亮)
+	// 		*/
+	// 		pwms = <&pwm3 2 100000 PWM_POLARITY_INVERTED>;
+	// 	};
+	// };
+
+	/* 模拟 I2C 控制器必须放在根节点下 */
+    /* 这里的名字可以叫 gpio-i2c_0，但 compatible 必须固定 */
+    // gpio_i2c0: gpio_i2c0 {
+    //     compatible = "gpio-i2c";
+    //     status = "okay";  /* 激活该节点 */
+
+    //     /* SDA 对应 PC1, SCL 对应 PC0 */
+    //     /* 这里的 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN) 是标准要求 */
+    //     sda-gpios = <&gpioc 1 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+    //     scl-gpios = <&gpioc 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+        
+    //     clock-frequency = <I2C_BITRATE_STANDARD>;
+    //     #address-cells = <1>;
+    //     #size-cells = <0>;
+
+	// 	/* 加速度传感器作为子节点挂载 */
+	// 	icm20608: icm20608@68 {
+	// 		compatible = "invensense,icm20608";
+	// 		reg = <0x68>;
+	// 		status = "okay";
+	// 		/* PD0 默认检测高电平,GPTO_EXTI0 */
+	// 		int-gpios = <&gpiod 0 GPIO_ACTIVE_HIGH>;
+    // 	};
+    // };
+};
+
+/* 如果你也用到了 dma1，同样需要修正 */
+// &dma1 {
+//     compatible = "st,stm32-dma-v2";
+//     #dma-cells = <3>;
+//     status = "okay";
+// };
+
+/* 强制纠正 DMA 控制器的属性，解决 #dma-cells 不匹配问题 */
+&dma2 {
+    compatible = "st,stm32-dma-v2"; /* 必须指定为 v2 */
+    #dma-cells = <3>;               /* 必须强制设为 3 */
+    status = "okay";
+};
+
+/* 配置串口 */
+&usart1 {
+    /* 现在这里的 3 个数字就能和上面的 #dma-cells = <3> 匹配上了 */
+    dmas = <&dma2 7 4 (STM32_DMA_PERIPH_TX | STM32_DMA_PRIORITY_HIGH)>,
+           <&dma2 2 4 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH)>;
+    dma-names = "tx", "rx";
+    status = "okay";
+};
+
+/* 修正 SPI5 的引脚分配，移除不需要的 PF6 */
+&spi5 {
+    pinctrl-0 = <&spi5_sck_pf7 &spi5_miso_pf8 &spi5_mosi_pf9>;
+    pinctrl-names = "default";
+    status = "okay";
+    /* 这里定义两个片选，第一个给屏幕(Index 0)，第二个给MEMS(Index 1) */
+    cs-gpios = <&gpioc 2 GPIO_ACTIVE_LOW>, <&gpioc 1 GPIO_ACTIVE_LOW>;
+};
+
+// Zephyr 官方的 ILI9341 驱动绑定文件（Binding）中没有定义 te-gpios 这个属性
+// &ili9341 {
+// 	te-gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
+// };
+
+&fmc {
+	status = "okay";
+    sdram {
+        status = "okay";
+        power-up-delay = <100>;
+        num-auto-refresh = <8>;      /* 初始化标准流程：8次自动刷新 */
+        mode-register = <0x0231>;    /* 设置 Burst=2, CAS=3 (对应下面的CAS_3) */
+        refresh-rate = <1386>;       /* 基于 84MHz 计算出的 64ms/4096行刷新率 */
+
+        bank@1 {
+            reg = <1>;               /* 物理连接：SDRAM 片选挂在 Bank 2 (SDNE1) */
+
+            st,sdram-control = <STM32_FMC_SDRAM_NC_8
+                                STM32_FMC_SDRAM_NR_12
+                                STM32_FMC_SDRAM_MWID_16
+                                STM32_FMC_SDRAM_NB_4
+                                STM32_FMC_SDRAM_CAS_3
+                                STM32_FMC_SDRAM_SDCLK_PERIOD_2
+                                STM32_FMC_SDRAM_RBURST_DISABLE
+                                STM32_FMC_SDRAM_RPIPE_1>;
+
+            /* 对应 CubeMX 参数转换 (单位为 SDCLK 周期) */
+            /* [TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD] */
+            /* TRAS 说明：CubeMX 的 8 HCLK 换算为 4 SDCLK，寄存器填 4-1=3 或更稳的 4 */
+            st,sdram-timing = <2 7 4 7 2 2 2>;
+        };
+    };
+};
