@@ -153,3 +153,11 @@
 // &ili9341 {
 // 	disctrl = [0A A7 27 04];
 // };
+
+&stmpe811 {
+    /* 使用这个关键字来删除官方文件里定义的属性 */
+    /delete-property/ inverted-y;
+
+    /* 优化触摸参数 */
+    tracking-index = <16>;           /* 降低数值，让小幅移动更灵敏 */
+};
