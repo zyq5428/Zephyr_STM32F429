@@ -58,7 +58,7 @@ Get-ChildItem -Recurse -Filter '*ap3216c*' -ErrorAction SilentlyContinue
 
 ### 查找 dts/bindings/sensor 目录下所有 *.yaml 文件内容中包含 'ap3216c' 的文件
 ```
-Get-ChildItem -Path .\dts\bindings\sensor -Recurse -Include *.yaml | Select-String -Pattern "ap3216c" -AllMatches
+Get-ChildItem -Path .\zephyr\dts\bindings -Recurse -Include *.yaml | Select-String -Pattern "st,l3gd20" -AllMatches
 ```
 - 命令详解：Get-ChildItem -Path .\dts\bindings\sensor -Recurse -Include *.yaml:
     - 首先，找到 dts\bindings\sensor 目录下所有的 YAML 文件。

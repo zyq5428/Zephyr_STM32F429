@@ -1,0 +1,7 @@
+# STMicroelectronics L3GD20 3-axis gyrometer
+description: |
+    STMicroelectronics L3GD20 3-axis gyrometer accessed through SPI bus
+
+compatible: "st,l3gd20" 
+
+include: [sensor-device.yaml, spi-device.yaml]
