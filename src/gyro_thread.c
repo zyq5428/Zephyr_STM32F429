@@ -2,56 +2,78 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/logging/log.h>
+#include <math.h>
 
-// 启用日志记录
 LOG_MODULE_REGISTER(GYRO_TASK, LOG_LEVEL_INF);
 
-/* 声明全局变量，用于在不同线程间传递数据 (简单示例) */
-static float gx, gy, gz;
+/* --- 配置常量 --- */
+#define RAD_TO_DPS 57.2957795f
+#define FILTER_ALPHA 0.5f  // 滤波系数 (0.0~1.0)，越小越平滑，但响应变慢
+
+/* 静态变量，用于存储平滑后的值 */
+static float smooth_gx, smooth_gy, smooth_gz;
 
 /**
- * @brief L3GD20 数据读取线程函数
- * * 此函数将被分配到一个独立的线程中运行。
+ * @brief 自定义转换函数：解决 Zephyr 负数转换时的符号丢失问题
  */
+static float sensor_to_float(struct sensor_value *v)
+{
+    /* 显式处理：整数部分 + (微量部分 / 100万) */
+    /* 注意：如果 v->val1 是 0 且数值为负，符号会由驱动层处理或在此手动判定 */
+    return (float)v->val1 + (float)v->val2 / 1000000.0f;
+}
+
 void gyro_thread_entry(void *p1, void *p2, void *p3)
 {
-    /* 1. 获取设备实例 */
-    /* DT_NODELABEL(l3gd20) 对应你设备树中的标签 */
     const struct device *const dev = DEVICE_DT_GET(DT_NODELABEL(l3gd20));
     struct sensor_value gyro[3];
+    
+    float offset_x = 0.0f, offset_y = 0.0f, offset_z = 0.0f;
+    int calib_samples = 100;
 
-    /* 2. 检查设备是否准备就绪 */
     if (!device_is_ready(dev)) {
-        LOG_WRN("错误: L3GD20 设备未就绪！\n");
+        LOG_ERR("L3GD20 未就绪");
         return;
     }
 
-    LOG_INF("L3GD20 读取线程已启动...\n");
+    /* --- 1. 自动校准阶段 --- */
+    LOG_INF("正在校准，请保持设备静止...");
+    for (int i = 0; i < calib_samples; i++) {
+        if (sensor_sample_fetch(dev) == 0) {
+            sensor_channel_get(dev, SENSOR_CHAN_GYRO_XYZ, gyro);
+            offset_x += sensor_to_float(&gyro[0]);
+            offset_y += sensor_to_float(&gyro[1]);
+            offset_z += sensor_to_float(&gyro[2]);
+        }
+        k_msleep(10);
+    }
+    offset_x /= calib_samples;
+    offset_y /= calib_samples;
+    offset_z /= calib_samples;
+    LOG_INF("校准完成！偏移量 -> X:%.3f, Y:%.3f, Z:%.3f", (double)offset_x, (double)offset_y, (double)offset_z);
 
-    /* 3. 循环读取数据 */
+    /* --- 2. 主循环 --- */
     while (1) {
-        /* 触发传感器采样（从硬件读取原始值） */
-        if (sensor_sample_fetch(dev) < 0) {
-            LOG_WRN("警告: 无法获取陀螺仪样本数据\n");
-        } else {
-            /* 获取转换后的角速度值（单位：rad/s） */
+        if (sensor_sample_fetch(dev) == 0) {
             sensor_channel_get(dev, SENSOR_CHAN_GYRO_XYZ, gyro);
 
-            /* 将结果转换为浮点数并存入全局变量 */
-            /* 注意：sensor_value_to_double 是 Zephyr 提供的便捷转换函数 */
-            gx = (float)sensor_value_to_double(&gyro[0]);
-            gy = (float)sensor_value_to_double(&gyro[1]);
-            gz = (float)sensor_value_to_double(&gyro[2]);
+            /* A. 获取去偏后的原始值 (单位: rad/s) */
+            float cur_gx = sensor_to_float(&gyro[0]) - offset_x;
+            float cur_gy = sensor_to_float(&gyro[1]) - offset_y;
+            float cur_gz = sensor_to_float(&gyro[2]) - offset_z;
 
-            /* 打印数据（调试用） */
-            /* 如果你想看度数/秒 (dps)，请将弧度乘以 57.295 */
-            /* 在 Zephyr 日志中使用 (double) 进行强转是消除此类警告的标准做法 */
-            LOG_INF("Gyro [rad/s] -> X: %.3f, Y: %.3f, Z: %.3f", 
-                    (double)gx, (double)gy, (double)gz);
-            }
+            /* B. 一阶低通滤波 (消除抖动) */
+            smooth_gx = (cur_gx * FILTER_ALPHA) + (smooth_gx * (1.0f - FILTER_ALPHA));
+            smooth_gy = (cur_gy * FILTER_ALPHA) + (smooth_gy * (1.0f - FILTER_ALPHA));
+            smooth_gz = (cur_gz * FILTER_ALPHA) + (smooth_gz * (1.0f - FILTER_ALPHA));
 
-        /* 4. 线程睡眠，控制采样频率（例如 10Hz = 100ms） */
-        k_msleep(100);
+            /* C. 转换并打印 (单位: dps) */
+            LOG_INF("Gyro [dps] -> X: %6.2f | Y: %6.2f | Z: %6.2f", 
+                    (double)(smooth_gx * RAD_TO_DPS), 
+                    (double)(smooth_gy * RAD_TO_DPS), 
+                    (double)(smooth_gz * RAD_TO_DPS));
+        }
+        k_msleep(100); // 10Hz 刷新率
     }
 }
 

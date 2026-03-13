@@ -31,6 +31,8 @@ static int l3gd20_sample_fetch(const struct device *dev, enum sensor_channel cha
     /* 直接读取 6 个字节获取 X, Y, Z 三轴原始值 */
     ret = l3gd20_read_reg(dev, L3GD20_OUT_X_L, buff, 6);
     if (ret == 0) {
+        // 专门看 X 轴的两个原始字节
+        // LOG_INF("RAW HEX -> L: 0x%02x, H: 0x%02x", buff[0], buff[1]);
         data->angular_rate[0] = (int16_t)((uint16_t)buff[1] << 8 | buff[0]);
         data->angular_rate[1] = (int16_t)((uint16_t)buff[3] << 8 | buff[2]);
         data->angular_rate[2] = (int16_t)((uint16_t)buff[5] << 8 | buff[4]);
@@ -41,10 +43,27 @@ static int l3gd20_sample_fetch(const struct device *dev, enum sensor_channel cha
 static int l3gd20_channel_get(const struct device *dev, enum sensor_channel chan, struct sensor_value *val)
 {
     struct l3gd20_data *data = dev->data;
+
+    if (chan != SENSOR_CHAN_GYRO_XYZ && chan != SENSOR_CHAN_ALL) {
+        return -ENOTSUP;
+    }
+
     for (int i = 0; i < 3; i++) {
-        int32_t micro_dps = data->angular_rate[i] * L3GD20_SENSITIVITY;
-        val[i].val1 = micro_dps / 1000000LL;
-        val[i].val2 = micro_dps % 1000000LL;
+        /* 使用 int64 确保中间乘法不溢出 */
+        int64_t micro_dps = (int64_t)data->angular_rate[i] * L3GD20_SENSITIVITY;
+
+        /* 分离整数和微秒部分 */
+        val[i].val1 = (int32_t)(micro_dps / 1000000LL);
+        
+        /* 关键：Zephyr 的 val2 必须是正数 */
+        int32_t remainder = (int32_t)(micro_dps % 1000000LL);
+        if (remainder < 0) {
+            // 如果是负数，我们需要让 val1 向负方向进位，或者保持 val2 为正
+            // 这里采用最通用的做法：val2 取绝对值
+            val[i].val2 = -remainder;
+        } else {
+            val[i].val2 = remainder;
+        }
     }
     return 0;
 }
@@ -62,18 +81,22 @@ static int l3gd20_init(const struct device *dev)
     ret = l3gd20_spi_init(dev);
     if (ret != 0) return ret;
 
-    /* 验证 ID */
+    /* 确认通信 */
     ret = l3gd20_read_reg(dev, L3GD20_WHO_AM_I, &wai, 1);
     if (ret != 0 || (wai != L3GD20_ID && wai != L3GD20H_ID)) {
-        LOG_ERR("Invalid ID: 0x%02x (ret: % d)", wai, ret);
         return -EIO;
     }
 
-    /* 激活传感器：ODR=100Hz, 全功率模式, 使能三轴 */
+    /* 关键配置组合 */
+    // CTRL1: 100Hz 采样, 开启三轴, 正常工作模式
     uint8_t ctrl1 = 0x0F; 
     l3gd20_write_reg(dev, L3GD20_CTRL_REG1, &ctrl1, 1);
 
-    LOG_INF("L3GD20 initialized successfully");
+    // CTRL4: 开启 BDU (非常重要!), 量程 250dps
+    uint8_t ctrl4 = 0x80; 
+    l3gd20_write_reg(dev, L3GD20_CTRL_REG4, &ctrl4, 1);
+
+    LOG_INF("L3GD20 配置已刷新：BDU已开启，量程250dps");
     return 0;
 }
 
