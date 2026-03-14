@@ -68,7 +68,7 @@ void gyro_thread_entry(void *p1, void *p2, void *p3)
             smooth_gz = (cur_gz * FILTER_ALPHA) + (smooth_gz * (1.0f - FILTER_ALPHA));
 
             /* C. 转换并打印 (单位: dps) */
-            LOG_INF("Gyro [dps] -> X: %6.2f | Y: %6.2f | Z: %6.2f", 
+            LOG_DBG("Gyro [dps] -> X: %6.2f | Y: %6.2f | Z: %6.2f", 
                     (double)(smooth_gx * RAD_TO_DPS), 
                     (double)(smooth_gy * RAD_TO_DPS), 
                     (double)(smooth_gz * RAD_TO_DPS));

@@ -11,6 +11,12 @@
 	// 	zephyr,touch = &stmpe811;
 	// };
 
+    /* 官方示例通过 zephyr,user 节点统一管理代码引用的通道 */
+    zephyr,user {
+        /* PA5 ，它对应 ADC1 的 通道 5 */
+        io-channels = <&adc1 5>;
+    };
+
 	// aliases {
 	// 	led0 = &green_led_3;
 	// 	sw0 = &user_button;
@@ -168,4 +174,34 @@
 
     /* 优化触摸参数 */
     tracking-index = <16>;           /* 降低数值，让小幅移动更灵敏 */
+};
+
+// /* 1. 激活芯片内置的温度传感器支持 */
+// &die_temp {
+//     status = "okay";
+// };
+
+// /* 2. 激活内部参考电压（为了让电压转换更准） */
+// &vref {
+//     status = "okay";
+// };
+
+&adc1 {
+    status = "okay";
+    st,adc-prescaler = <4>;
+    
+    /* 定义通道 5 (PA5) */
+    #address-cells = <1>;
+    #size-cells = <0>;
+
+    pinctrl-0 = <&adc1_in5_pa5>;
+    pinctrl-names = "default";
+    
+    channel@5 {
+        reg = <5>;
+        zephyr,gain = "ADC_GAIN_1";
+        zephyr,reference = "ADC_REF_INTERNAL"; // 使用 3.3V 作为基准
+        zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+        zephyr,resolution = <12>;
+    };
 };

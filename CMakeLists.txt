@@ -35,6 +35,7 @@ target_sources(app PRIVATE
     src/led_thread.c
     src/display_thread.c
     src/gyro_thread.c
+    src/dietemp_thread.c
     # src/self_test_thread.c
     drivers/l3gd20.c
     drivers/l3gd20_spi.c
